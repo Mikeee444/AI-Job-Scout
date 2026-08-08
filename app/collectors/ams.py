@@ -47,18 +47,6 @@ class AMSCollector(BaseCollector):
 
                 results = data.get("results", [])
 
-                if results:
-                    print("\n=== AMS FIRST JOB KEYS ===")
-                    print(results[0].keys())
-
-                    print("\n=== AMS DATE-RELATED FIELDS ===")
-                    for key, value in results[0].items():
-                        if any(
-                            word in key.lower()
-                            for word in ["date", "time", "update", "publish", "create"]
-                        ):
-                            print(key, "=", value)
-
                 for job in results:
                     working_location = job.get("workingLocation") or {}
                     coordinates = working_location.get("coordinates") or []
