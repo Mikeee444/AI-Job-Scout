@@ -1,12 +1,20 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, Float, Integer, String, Text
+from sqlalchemy import Column, DateTime, Float, Integer, String, Text, UniqueConstraint
 
 from .database import Base
 
 
 class Job(Base):
     __tablename__ = "jobs"
+
+    __table_args__ = (
+        UniqueConstraint(
+            "source",
+            "source_job_id",
+            name="uq_job_source_source_job_id",
+        ),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
 
