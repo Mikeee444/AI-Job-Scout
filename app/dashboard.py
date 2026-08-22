@@ -7,7 +7,13 @@ from app.services.job_scorer import (
     calculate_match_score,
     calculate_requirement_risk,
     classify_job,
+    explain_score,
 )
+
+
+# =========================================================
+# PAGE CONFIG
+# =========================================================
 
 st.set_page_config(
     page_title="AI Job Scout",
@@ -16,120 +22,286 @@ st.set_page_config(
 
 st.title("AI Job Scout")
 
+
+# =========================================================
+# DATABASE
+# =========================================================
+
 db = SessionLocal()
 
-jobs = (
-    db.query(Job)
-    .order_by(Job.score.desc())
-    .all()
-)
+try:
+    all_jobs = (
+        db.query(Job)
+        .order_by(Job.score.desc())
+        .all()
+    )
 
-# Minimum score filter
-min_score = st.slider(
-    "Minimum score",
-    min_value=0,
-    max_value=100,
-    value=0,
-    step=5,
-)
+    # =====================================================
+    # FILTERS
+    # =====================================================
 
-# Time filter
-time_period = st.selectbox(
-    "Time period",
-    [
-        "All",
-        "Since yesterday",
-        "Last 2 days",
-        "Last 7 days",
-        "Last 14 days",
-        "Last 30 days",
-    ],
-)
+    min_score = st.slider(
+        "Minimum score",
+        min_value=0,
+        max_value=100,
+        value=0,
+        step=5,
+    )
 
-# Category filter
-categories = sorted(
-    {
-        classify_job(job)
-        for job in jobs
-    }
-)
+    time_period = st.selectbox(
+        "Time period",
+        [
+            "All",
+            "Since yesterday",
+            "Last 2 days",
+            "Last 7 days",
+            "Last 14 days",
+            "Last 30 days",
+        ],
+    )
 
-category = st.selectbox(
-    "Category",
-    ["ALL"] + categories,
-)
+    categories = sorted(
+        {
+            classify_job(job)
+            for job in all_jobs
+        }
+    )
 
-# Apply minimum score
-jobs = [
-    job
-    for job in jobs
-    if (job.score or 0) >= min_score
-]
+    category = st.selectbox(
+        "Category",
+        ["ALL"] + categories,
+    )
 
-# Apply time filter
-if time_period != "All":
-    days = {
-        "Since yesterday": 1,
-        "Last 2 days": 2,
-        "Last 7 days": 7,
-        "Last 14 days": 14,
-        "Last 30 days": 30,
-    }[time_period]
+    search_text = st.text_input(
+        "Search jobs",
+        placeholder="Search by job title or company...",
+    )
 
-    cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+    # =====================================================
+    # APPLY FILTERS
+    # =====================================================
 
-    def is_recent(job):
-        date = job.collected_at
+    jobs = all_jobs
 
-        if date is None:
-            return False
+    # -----------------------------------------------------
+    # Minimum score
+    # -----------------------------------------------------
 
-        if date.tzinfo is None:
-            date = date.replace(tzinfo=timezone.utc)
-
-        return date >= cutoff
-
-    jobs = [job for job in jobs if is_recent(job)]
-
-# Apply category filter
-if category != "ALL":
     jobs = [
         job
         for job in jobs
-        if classify_job(job) == category
+        if (job.score or 0) >= min_score
     ]
 
-st.write(f"**{len(jobs)} jobs match the filter**")
+    # -----------------------------------------------------
+    # Time period
+    # -----------------------------------------------------
 
-for job in jobs:
-    match_score = calculate_match_score(job)
-    risk = calculate_requirement_risk(job)
-    job_category = classify_job(job)
+    if time_period != "All":
 
-    st.subheader(
-        f"{job.score}/100 - {job.title}"
-    )
+        days = {
+            "Since yesterday": 1,
+            "Last 2 days": 2,
+            "Last 7 days": 7,
+            "Last 14 days": 14,
+            "Last 30 days": 30,
+        }[time_period]
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.metric("Match", f"{match_score}/100")
-
-    with col2:
-        st.metric("Requirement risk", risk)
-
-    with col3:
-        st.metric("Category", job_category)
-
-    st.write(
-        f"**{job.company}** - "
-        f"{job.location or 'Unknown'}"
-    )
-
-    if job.url:
-        st.link_button(
-            "View job posting",
-            job.url,
+        cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(days=days)
         )
 
-db.close()
+        def is_recent(job):
+            date = job.collected_at
+
+            if date is None:
+                return False
+
+            if date.tzinfo is None:
+                date = date.replace(
+                    tzinfo=timezone.utc
+                )
+
+            return date >= cutoff
+
+        jobs = [
+            job
+            for job in jobs
+            if is_recent(job)
+        ]
+
+    # -----------------------------------------------------
+    # Category
+    # -----------------------------------------------------
+
+    if category != "ALL":
+
+        jobs = [
+            job
+            for job in jobs
+            if classify_job(job) == category
+        ]
+
+    # -----------------------------------------------------
+    # Search
+    # -----------------------------------------------------
+
+    if search_text.strip():
+
+        search = search_text.strip().lower()
+
+        jobs = [
+            job
+            for job in jobs
+            if (
+                search in (job.title or "").lower()
+                or search in (job.company or "").lower()
+            )
+        ]
+
+    # =====================================================
+    # RESULT COUNT
+    # =====================================================
+
+    st.write(
+        f"**{len(jobs)} jobs match the filter**"
+    )
+
+    # =====================================================
+    # JOB RESULTS
+    # =====================================================
+
+    for job in jobs:
+
+        # -------------------------------------------------
+        # Calculate scores
+        # -------------------------------------------------
+
+        match_score = calculate_match_score(job)
+        requirement_risk = calculate_requirement_risk(job)
+        job_category = classify_job(job)
+        score_explanation = explain_score(job)
+
+        # -------------------------------------------------
+        # Job title
+        # -------------------------------------------------
+
+        st.subheader(
+            f"{job.score}/100 - {job.title}"
+        )
+
+        # -------------------------------------------------
+        # Metrics
+        # -------------------------------------------------
+
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            st.metric(
+                "Match",
+                f"{match_score}/100",
+            )
+
+        with col2:
+            st.metric(
+                "Requirement risk",
+                requirement_risk,
+            )
+
+        with col3:
+            st.metric(
+                "Category",
+                job_category,
+            )
+
+        # -------------------------------------------------
+        # Company / location
+        # -------------------------------------------------
+
+        st.write(
+            f"**{job.company or 'Unknown'}**"
+            f" - "
+            f"{job.location or 'Unknown'}"
+        )
+
+        # -------------------------------------------------
+        # Score explanation
+        # -------------------------------------------------
+
+        with st.expander("Why this score?"):
+
+            st.write(
+                f"**Base score:** "
+                f"{score_explanation['base_score']}/100"
+            )
+
+            st.write(
+                f"**Category:** "
+                f"{score_explanation['category']}"
+            )
+
+            st.write(
+                f"**Category weight:** "
+                f"{score_explanation['category_weight']:.2f}"
+            )
+
+            st.write(
+                f"**Final score:** "
+                f"**{score_explanation['final_score']}/100**"
+            )
+
+            # -------------------------------------------------
+            # Positive signals
+            # -------------------------------------------------
+
+            if score_explanation["positive"]:
+
+                st.markdown("### Positive signals")
+
+                for reason, points in score_explanation["positive"]:
+
+                    if points > 0:
+                        st.write(
+                            f"**+{points}** - {reason}"
+                        )
+                    else:
+                        st.write(reason)
+
+            # -------------------------------------------------
+            # Risks / deductions
+            # -------------------------------------------------
+
+            if score_explanation["risks"]:
+
+                st.markdown("### Risk / deductions")
+
+                for reason, points in score_explanation["risks"]:
+
+                    st.write(
+                        f"**-{points}** - {reason}"
+                    )
+
+        # -------------------------------------------------
+        # Job description
+        # -------------------------------------------------
+
+        if job.description:
+
+            with st.expander("Job description"):
+
+                st.write(job.description)
+
+        # -------------------------------------------------
+        # Job posting
+        # -------------------------------------------------
+
+        if job.url:
+
+            st.link_button(
+                "View job posting",
+                job.url,
+            )
+
+finally:
+    db.close()
