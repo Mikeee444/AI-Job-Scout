@@ -7,7 +7,7 @@ from app.services.scoring_pipeline import score_all_jobs
 
 def collect_and_save_ams_jobs(
     db: Session,
-    max_pages: int = 5,
+    max_pages: int = 10,
 ) -> int:
     """Collect AMS jobs and save them to the database."""
 
