@@ -19,12 +19,13 @@ def save_job(db: Session, job_data: dict) -> Job:
 
     source = job_data.get("source")
     source_job_id = job_data.get("source_job_id")
+    url = job_data["url"]
 
     job = (
         db.query(Job)
         .filter(
-            Job.source == source,
-            Job.source_job_id == source_job_id,
+            (Job.source == source) & (Job.source_job_id == source_job_id)
+            | (Job.url == url)
         )
         .first()
     )
