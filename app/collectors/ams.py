@@ -6,13 +6,21 @@ from .base import BaseCollector
 
 
 class AMSCollector(BaseCollector):
-    """Collect AMS jobs for Graz and a 5 km radius from the last 30 days."""
+    """Collect AMS jobs for Graz and a 5 km radius."""
 
     BASE_URL = "https://jobs.ams.at/public/emps/jobs"
 
-    def collect(self, max_pages: int = 400) -> list[dict]:
+    def collect(
+        self,
+        days_back: int = 30,
+        max_pages: int = 400,
+    ) -> list[dict]:
         jobs = []
-        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+        cutoff = (
+            datetime.now(timezone.utc)
+            - timedelta(days=days_back)
+        )
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -76,16 +84,20 @@ class AMSCollector(BaseCollector):
                         continue
 
                     # AMS is sorted newest -> oldest.
-                    # Once we reach jobs older than 30 days,
-                    # we don't need to continue collecting.
+                    # Stop once we reach the selected cutoff.
                     if job_date < cutoff:
                         stop_collecting = True
                         continue
 
                     page_has_recent_jobs = True
 
-                    working_location = job.get("workingLocation") or {}
-                    coordinates = working_location.get("coordinates") or []
+                    working_location = (
+                        job.get("workingLocation") or {}
+                    )
+
+                    coordinates = (
+                        working_location.get("coordinates") or []
+                    )
 
                     latitude = None
                     longitude = None
@@ -97,8 +109,12 @@ class AMSCollector(BaseCollector):
                     jobs.append(
                         {
                             "title": job.get("title"),
-                            "company": (job.get("company") or {}).get("name"),
-                            "location": working_location.get("municipality"),
+                            "company": (
+                                job.get("company") or {}
+                            ).get("name"),
+                            "location": working_location.get(
+                                "municipality"
+                            ),
                             "latitude": latitude,
                             "longitude": longitude,
                             "distance_km": None,
@@ -106,7 +122,9 @@ class AMSCollector(BaseCollector):
                             "url": job.get("urlToJobOffer"),
                             "description": job.get("summary"),
                             "source": "ams",
-                            "source_job_id": str(job.get("id")),
+                            "source_job_id": str(
+                                job.get("id")
+                            ),
                             "published_at": last_updated,
                             "updated_at": last_updated,
                         }
@@ -123,6 +141,9 @@ class AMSCollector(BaseCollector):
 
             browser.close()
 
-        print(f"AMS collection finished: {len(jobs)} jobs")
+        print(
+            f"AMS collection finished: "
+            f"{len(jobs)} jobs"
+        )
 
         return jobs
