@@ -537,3 +537,207 @@ def calculate_score(job: Job) -> int:
 
     return max(0, min(weighted_score, 100)
     )
+
+# =========================================================
+# SCORE EXPLANATION
+# =========================================================
+
+def explain_score(job: Job) -> dict:
+    """
+    Explain why a job received its score.
+
+    Uses the same scoring rules as calculate_match_score()
+    and calculate_requirement_risk().
+    """
+
+    title = (job.title or "").lower()
+    description = (job.description or "").lower()
+
+    positive = []
+    risks = []
+
+    # ---------------------------------------------------------
+    # Clearly irrelevant
+    # ---------------------------------------------------------
+
+    if is_irrelevant(job):
+        return {
+            "positive": [],
+            "risks": [("Irrelevant job category", 100)],
+            "base_score": 0,
+            "category": classify_job(job),
+            "category_weight": 0.50,
+            "final_score": 0,
+        }
+
+    # ---------------------------------------------------------
+    # Preferred roles
+    # ---------------------------------------------------------
+
+    for role in PROFILE["preferred_roles"]:
+        if contains(title, role):
+            positive.append(
+                (f"Preferred role: {role}", 15)
+            )
+
+    # ---------------------------------------------------------
+    # Primary roles
+    # ---------------------------------------------------------
+
+    for keyword, points in PRIMARY_ROLES.items():
+        if contains(title, keyword):
+            positive.append(
+                (f"Role: {keyword}", points)
+            )
+
+    # ---------------------------------------------------------
+    # Secondary roles
+    # ---------------------------------------------------------
+
+    for keyword, points in SECONDARY_ROLES.items():
+        if contains(title, keyword):
+            positive.append(
+                (f"Secondary role: {keyword}", points)
+            )
+
+    # ---------------------------------------------------------
+    # Technical skills
+    # ---------------------------------------------------------
+
+    skill_points = 0
+
+    for keyword, points in HIGH_VALUE_SKILLS.items():
+        if contains(description, keyword):
+            skill_points += points
+            positive.append(
+                (f"Skill: {keyword}", points)
+            )
+
+    # Explain the 40-point cap
+    if skill_points > 40:
+        positive.append(
+            ("Technical skill points capped at 40", 0)
+        )
+
+    # ---------------------------------------------------------
+    # Education
+    # ---------------------------------------------------------
+
+    education_points = 0
+
+    for keyword, points in EDUCATION.items():
+        if contains(description, keyword):
+            education_points += points
+            positive.append(
+                (f"Education: {keyword}", points)
+            )
+
+    if education_points > 15:
+        positive.append(
+            ("Education points capped at 15", 0)
+        )
+
+    # ---------------------------------------------------------
+    # Location
+    # ---------------------------------------------------------
+
+    if job.location and "graz" in job.location.lower():
+        positive.append(
+            ("Location: Graz", 5)
+        )
+
+    # ---------------------------------------------------------
+    # Requirement risk
+    # ---------------------------------------------------------
+
+    for keyword, points in EXPERIENCE_RISK.items():
+        if (
+            contains(description, keyword)
+            or contains(title, keyword)
+        ):
+            risks.append(
+                (f"Experience requirement: {keyword}", points)
+            )
+
+    # Skill-gap risks
+    experience_requirements = {
+        "t-sql": 5,
+        "erp": 5,
+        "oracle": 4,
+        "database administration": 5,
+        "datenbankadministration": 5,
+        "c#": 3,
+        "java": 3,
+        "python": 3,
+        "sps": 3,
+        "scada": 3,
+    }
+
+    for keyword, points in experience_requirements.items():
+
+        if contains(description, keyword):
+
+            if (
+                "erfahrung" in description
+                or "kenntnisse" in description
+                or "entwicklung" in description
+                or "programmierung" in description
+            ):
+                risks.append(
+                    (f"Technology experience: {keyword}", points)
+                )
+
+    # ERP + database
+    if "erp" in description and "datenbank" in description:
+        risks.append(
+            ("ERP + database experience", 8)
+        )
+
+    # Travel
+    if "50%" in description and "reise" in description:
+        risks.append(
+            ("50% travel requirement", 5)
+        )
+
+    if "weltweit" in description and "reise" in description:
+        risks.append(
+            ("Worldwide travel requirement", 3)
+        )
+
+    # ---------------------------------------------------------
+    # Calculate same values as scorer
+    # ---------------------------------------------------------
+
+    match_score = calculate_match_score(job)
+    requirement_risk = calculate_requirement_risk(job)
+
+    base_score = max(
+        0,
+        min(match_score - requirement_risk, 100),
+    )
+
+    category = classify_job(job)
+    category_weight = CATEGORY_WEIGHTS.get(
+        category,
+        0.50,
+    )
+
+    final_score = round(
+        base_score * category_weight
+    )
+
+    final_score = max(
+        0,
+        min(final_score, 100),
+    )
+
+    return {
+        "positive": positive,
+        "risks": risks,
+        "base_score": base_score,
+        "category": category,
+        "category_weight": category_weight,
+        "final_score": final_score,
+        "match_score": match_score,
+        "requirement_risk": requirement_risk,
+    }

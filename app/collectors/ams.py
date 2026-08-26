@@ -1,21 +1,30 @@
+from datetime import datetime, timedelta, timezone
+
 from playwright.sync_api import sync_playwright
 
 from .base import BaseCollector
 
 
 class AMSCollector(BaseCollector):
-    """Collect jobs from the AMS job search for Graz and a 5 km radius."""
+    """Collect AMS jobs for Graz and a 5 km radius from the last 30 days."""
 
     BASE_URL = "https://jobs.ams.at/public/emps/jobs"
 
-    def collect(self, max_pages: int = 5) -> list[dict]:
+    def collect(self, max_pages: int = 400) -> list[dict]:
         jobs = []
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
 
+            stop_collecting = False
+
             for page_number in range(1, max_pages + 1):
+
+                if stop_collecting:
+                    break
+
                 url = (
                     f"{self.BASE_URL}"
                     "?sortOrder=desc"
@@ -47,7 +56,34 @@ class AMSCollector(BaseCollector):
 
                 results = data.get("results", [])
 
+                if not results:
+                    break
+
+                page_has_recent_jobs = False
+
                 for job in results:
+
+                    last_updated = job.get("lastUpdatedAt")
+
+                    if not last_updated:
+                        continue
+
+                    try:
+                        job_date = datetime.fromisoformat(
+                            last_updated.replace("Z", "+00:00")
+                        )
+                    except ValueError:
+                        continue
+
+                    # AMS is sorted newest -> oldest.
+                    # Once we reach jobs older than 30 days,
+                    # we don't need to continue collecting.
+                    if job_date < cutoff:
+                        stop_collecting = True
+                        continue
+
+                    page_has_recent_jobs = True
+
                     working_location = job.get("workingLocation") or {}
                     coordinates = working_location.get("coordinates") or []
 
@@ -71,14 +107,22 @@ class AMSCollector(BaseCollector):
                             "description": job.get("summary"),
                             "source": "ams",
                             "source_job_id": str(job.get("id")),
-                            "published_at": None,
-                            "updated_at": job.get("lastUpdatedAt"),
+                            "published_at": last_updated,
+                            "updated_at": last_updated,
                         }
                     )
 
-                if not results:
+                print(
+                    f"AMS page {page_number}: "
+                    f"{len(results)} results, "
+                    f"{len(jobs)} jobs collected"
+                )
+
+                if not page_has_recent_jobs:
                     break
 
             browser.close()
+
+        print(f"AMS collection finished: {len(jobs)} jobs")
 
         return jobs
