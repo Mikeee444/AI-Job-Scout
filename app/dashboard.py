@@ -30,6 +30,7 @@ st.title("AI Job Scout")
 db = SessionLocal()
 
 try:
+    # Always load jobs from highest score to lowest score.
     all_jobs = (
         db.query(Job)
         .order_by(Job.score.desc())
@@ -40,6 +41,10 @@ try:
     # FILTERS
     # =====================================================
 
+    # -----------------------------------------------------
+    # Minimum score
+    # -----------------------------------------------------
+
     min_score = st.slider(
         "Minimum score",
         min_value=0,
@@ -47,6 +52,10 @@ try:
         value=0,
         step=5,
     )
+
+    # -----------------------------------------------------
+    # Time period
+    # -----------------------------------------------------
 
     time_period = st.selectbox(
         "Time period",
@@ -60,6 +69,10 @@ try:
         ],
     )
 
+    # -----------------------------------------------------
+    # Category
+    # -----------------------------------------------------
+
     categories = sorted(
         {
             classify_job(job)
@@ -71,6 +84,10 @@ try:
         "Category",
         ["ALL"] + categories,
     )
+
+    # -----------------------------------------------------
+    # Search
+    # -----------------------------------------------------
 
     search_text = st.text_input(
         "Search jobs",
@@ -224,6 +241,24 @@ try:
             f" - "
             f"{job.location or 'Unknown'}"
         )
+
+        # -------------------------------------------------
+        # Inserted / Updated date
+        # -------------------------------------------------
+
+        if job.published_at:
+
+            published_at = job.published_at
+
+            if published_at.tzinfo is None:
+                published_at = published_at.replace(
+                    tzinfo=timezone.utc
+                )
+
+            st.caption(
+                "Inserted / Updated: "
+                f"{published_at.strftime('%d.%m.%Y %H:%M')}"
+            )
 
         # -------------------------------------------------
         # Score explanation
